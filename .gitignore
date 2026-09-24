@@ -1,0 +1,26 @@
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Docker
+.docker/
+
+# OS/IDE
+.DS_Store
+.vscode/
+.idea/
+
+# AegisFlow Specific
+data/synthetic_logs/

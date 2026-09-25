@@ -1,111 +1,102 @@
-import random
-import os
 import sys
-from faker import Faker
-from datetime import datetime
-import json
+import os
+import random
+from datetime import datetime, timedelta
 
-# 1. Proje ana dizinini yola ekliyoruz ki 'app' modülünü bulabilelim
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app.infrastructure.database import SessionLocal
 from app.infrastructure.models import SecurityEvent
 
-fake = Faker()
+# Deterministik yapı için seed sabitliyoruz
+random.seed(42)
 
-NORMAL_EVENTS = ["LOGIN_SUCCESS", "FILE_READ", "LOGOUT"]
-SUSPICIOUS_EVENTS = ["LOGIN_FAILED"]
-CRITICAL_EVENTS = ["FILE_DOWNLOAD", "PRIVILEGE_CHANGE", "DATA_EXPORT"]
+def clear_database(db):
+    """Her çalıştırmada temiz bir test ortamı için tabloyu sıfırlar."""
+    db.query(SecurityEvent).delete()
+    db.commit()
 
-class UebaDataGenerator:
-    def __init__(self):
-        self.users_baseline = {
-            "user_alice": {
-                "role": "HR",
-                "known_ips": [fake.ipv4(), fake.ipv4()],
-                "known_devices": [fake.uuid4()],
-                "working_hours": (8, 17)
-            },
-            "user_bob": {
-                "role": "Finance",
-                "known_ips": [fake.ipv4()],
-                "known_devices": [fake.uuid4(), fake.uuid4()],
-                "working_hours": (9, 18)
-            },
-            "user_charlie_compromised": {
-                "role": "IT",
-                "known_ips": [fake.ipv4()],
-                "known_devices": [fake.uuid4()],
-                "working_hours": (10, 19)
-            }
-        }
-
-    def generate_single_event(self, user_id: str, is_anomalous: bool = False):
-        profile = self.users_baseline[user_id]
-        
-        if is_anomalous:
-            hour = random.randint(0, 5)
-        else:
-            hour = random.randint(profile["working_hours"][0], profile["working_hours"][1])
-            
-        timestamp = datetime.now().replace(hour=hour, minute=random.randint(0, 59), second=random.randint(0, 59)).isoformat()
-
-        if is_anomalous:
-            event_type = random.choice(CRITICAL_EVENTS + NORMAL_EVENTS)
-            ip_address = fake.ipv4() 
-            device_id = fake.uuid4() 
-        else:
-            if random.random() < 0.10:
-                event_type = random.choice(SUSPICIOUS_EVENTS)
-            else:
-                event_type = random.choice(NORMAL_EVENTS)
-                
-            ip_address = random.choice(profile["known_ips"])
-            device_id = random.choice(profile["known_devices"])
-
-        return {
-            "user_id": user_id,
-            "event_type": event_type,
-            "timestamp": timestamp,
-            "ip_address": ip_address,
-            "device_id": device_id,
-            "metadata_json": {"role": profile["role"]}
-        }
-
-# --- VERİTABANINA KAYIT (DB INSERTION) ---
-if __name__ == "__main__":
-    generator = UebaDataGenerator()
-    
-    print("Sentetik veriler üretiliyor ve veritabanına kaydediliyor...")
-    events_to_insert = []
-    
-    # 1. Normal Davranışlar (ML modeli için baseline oluşturmak adına bolca üretiyoruz)
-    for _ in range(50):
-        events_to_insert.append(generator.generate_single_event("user_alice", is_anomalous=False))
-        events_to_insert.append(generator.generate_single_event("user_bob", is_anomalous=False))
-        # Charlie'nin hesabı çalınmadan önceki normal halleri
-        events_to_insert.append(generator.generate_single_event("user_charlie_compromised", is_anomalous=False))
-        
-    # 2. Anormal Davranışlar (Saldırı anı - Az sayıda)
-    for _ in range(5):
-        events_to_insert.append(generator.generate_single_event("user_charlie_compromised", is_anomalous=True))
-        
-    # Veritabanı oturumu aç ve kaydet
+def generate_scenarios():
     db = SessionLocal()
-    try:
-        # Sözlük (dict) formatındaki verileri SQLAlchemy ORM nesnelerine dönüştürüyoruz
-        orm_events = [SecurityEvent(**event_data) for event_data in events_to_insert]
+    clear_database(db)
+    
+    events = []
+    base_date = datetime(2026, 9, 24)
+
+    def create_event(user, event_type, ip, device, hour, minute):
+        """Olay oluşturmayı kolaylaştıran yardımcı fonksiyon"""
+        ts = base_date.replace(hour=hour, minute=minute)
+        ts += timedelta(seconds=random.randint(0, 59))
         
-        db.add_all(orm_events)
-        db.commit()
+        events.append(SecurityEvent(
+            user_id=user, 
+            event_type=event_type, 
+            timestamp=ts,
+            ip_address=ip, 
+            device_id=device, 
+            metadata_json={}
+        ))
+
+    # =========================================================================
+    # 👤 PROFİL 1: ALICE (Baseline & High Volume Tester)
+    # =========================================================================
+    
+    # Senaryo 1: Baseline (Standart Mesai İçi Davranış)
+    create_event("user_alice", "LOGIN_SUCCESS", "192.168.1.50", "DEV-ALICE", 8, 0)
+    create_event("user_alice", "FILE_READ", "192.168.1.50", "DEV-ALICE", 8, 15)
+    create_event("user_alice", "FILE_READ", "192.168.1.50", "DEV-ALICE", 9, 30)
+    create_event("user_alice", "LOGOUT", "192.168.1.50", "DEV-ALICE", 10, 0)
+
+    # Senaryo 2: High-Volume Normal (Çok Sayıda Zararsız İşlem)
+    create_event("user_alice", "LOGIN_SUCCESS", "192.168.1.50", "DEV-ALICE", 13, 0)
+    for i in range(30):
+        create_event("user_alice", "FILE_READ", "192.168.1.50", "DEV-ALICE", 13, 5 + (i % 50))
+    create_event("user_alice", "LOGOUT", "192.168.1.50", "DEV-ALICE", 14, 0)
+
+
+    # =========================================================================
+    # 👤 PROFİL 2: BOB (The Ambiguous / False-Positive Tester)
+    # =========================================================================
+    
+    # Senaryo 1: Mobilite - Yeni Cihaz
+    create_event("user_bob", "LOGIN_SUCCESS", "192.168.1.60", "DEV-BOB-MOBILE", 9, 0)
+    for i in range(5):
+        create_event("user_bob", "FILE_READ", "192.168.1.60", "DEV-BOB-MOBILE", 9, 10 + (i*5))
         
-        # İşlemin başarılı olduğunu doğrulamak için DB'deki toplam kayıt sayısını çekiyoruz
-        total_events = db.query(SecurityEvent).count()
-        print(f"✅ Başarılı! Veritabanına {len(orm_events)} yeni olay eklendi.")
-        print(f"📊 Veritabanındaki toplam SecurityEvent sayısı: {total_events}")
-        
-    except Exception as e:
-        db.rollback()
-        print(f"❌ Veritabanına yazarken hata oluştu: {e}")
-    finally:
-        db.close()
+    # Senaryo 2: Mobilite - Yeni IP
+    create_event("user_bob", "LOGIN_SUCCESS", "203.0.113.42", "DEV-BOB", 14, 0)
+    create_event("user_bob", "FILE_READ", "203.0.113.42", "DEV-BOB", 14, 15)
+    create_event("user_bob", "FILE_DOWNLOAD", "203.0.113.42", "DEV-BOB", 14, 30)
+
+    # Senaryo 3: Login Retry (Şifre Unutma)
+    create_event("user_bob", "LOGIN_FAILED", "192.168.1.60", "DEV-BOB", 16, 5)
+    create_event("user_bob", "LOGIN_FAILED", "192.168.1.60", "DEV-BOB", 16, 6)
+    create_event("user_bob", "LOGIN_FAILED", "192.168.1.60", "DEV-BOB", 16, 7)
+    create_event("user_bob", "LOGIN_SUCCESS", "192.168.1.60", "DEV-BOB", 16, 15)
+    create_event("user_bob", "FILE_READ", "192.168.1.60", "DEV-BOB", 16, 20)
+
+
+    # =========================================================================
+    # 👤 PROFİL 3: CHARLIE (The Compromised Account)
+    # =========================================================================
+    
+    # Senaryo 1: Off-Hours Critical
+    create_event("user_charlie", "LOGIN_SUCCESS", "198.51.100.99", "DEV-CHARLIE", 3, 0)
+    create_event("user_charlie", "DATA_EXPORT", "198.51.100.99", "DEV-CHARLIE", 3, 30)
+
+    # Senaryo 2: Privilege Escalation & Exfil (Gündüz)
+    create_event("user_charlie", "LOGIN_SUCCESS", "198.51.100.99", "DEV-CHARLIE-HACKER", 10, 0)
+    create_event("user_charlie", "PRIVILEGE_CHANGE", "198.51.100.99", "DEV-CHARLIE-HACKER", 10, 15)
+    create_event("user_charlie", "FILE_DOWNLOAD", "198.51.100.99", "DEV-CHARLIE-HACKER", 10, 20)
+    create_event("user_charlie", "FILE_DOWNLOAD", "198.51.100.99", "DEV-CHARLIE-HACKER", 10, 22)
+    create_event("user_charlie", "FILE_DOWNLOAD", "198.51.100.99", "DEV-CHARLIE-HACKER", 10, 25)
+    create_event("user_charlie", "DATA_EXPORT", "198.51.100.99", "DEV-CHARLIE-HACKER", 10, 30)
+
+    db.add_all(events)
+    db.commit()
+    db.close()
+    
+    print(f"✅ Deterministik Senaryolar Uygulandı! Toplam {len(events)} olay veritabanına yazıldı.")
+
+if __name__ == "__main__":
+    generate_scenarios()

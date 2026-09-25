@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, DateTime, JSON
+from sqlalchemy import Column, String, DateTime, JSON, Integer, Float, UniqueConstraint, Index
+from sqlalchemy.sql import func
 from datetime import datetime
 import uuid
 from app.infrastructure.database import Base
@@ -29,3 +30,23 @@ class SecurityAlert(Base):
     severity = Column(String, index=True, nullable=False) 
     description = Column(String, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+class RiskAssessment(Base):
+    __tablename__ = "risk_assessments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(String(255), nullable=False)
+    window_start = Column(DateTime, nullable=False)
+    
+    rule_score = Column(Float, nullable=False, default=0.0)
+    ml_raw_score = Column(Float, nullable=False, default=0.0)
+    ml_norm_score = Column(Float, nullable=False, default=0.0)
+    final_risk = Column(Float, nullable=False, default=0.0)
+    
+    priority = Column(String(50), nullable=False)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "window_start", name="uq_risk_assessment_user_window"),
+        Index("ix_risk_assessment_user_window", "user_id", "window_start"),
+    )

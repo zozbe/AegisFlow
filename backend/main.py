@@ -1,21 +1,25 @@
-from fastapi import FastAPI, Depends, HTTPException, status
-from sqlalchemy import text
-from sqlalchemy.orm import Session
-from app.infrastructure.database import get_db
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.api.endpoints import assessments
 
-app = FastAPI(title="AegisFlow API")
+app = FastAPI(
+    title="AegisFlow API", 
+    description="User and Entity Behavior Analytics (UEBA) System",
+    version="1.0.0"
+)
 
-@app.get("/api/v1/health")
-def health_check(db: Session = Depends(get_db)):
-    try:
-        db.execute(text("SELECT 1"))
-        return {"status": "healthy", "database": "connected"}
-    except Exception as e:
-        # Gerçek hatayı (e) ileride burada backend loglarına yazdıracağız (saldırgan görmeyecek)
-        # print(f"Database connection error: {e}") 
-        
-        # Kullanıcıya ise sadece genel bir 503 hatası dönüyoruz
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database connection failed"
-        )
+# İleride React (Frontend) Dashboard'umuzun API'ye erişebilmesi için CORS izinleri
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Geliştirme aşamasında her şeye izin veriyoruz
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Yazdığımız router'ı /api/v1 prefix'i ile uygulamaya bağlıyoruz
+app.include_router(assessments.router, prefix="/api/v1", tags=["Risk Assessments"])
+
+@app.get("/")
+def root():
+    return {"message": "AegisFlow API is running. Go to /docs for Swagger UI."}

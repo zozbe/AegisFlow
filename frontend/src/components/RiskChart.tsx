@@ -3,12 +3,21 @@ import {
 } from 'recharts';
 import { RiskAssessment } from '../types';
 
-interface RiskChartProps {
-  assessments: RiskAssessment[];
+// X eksenine eklediğimiz 'time' ve Y eksenine eklediğimiz 'risk' alanlarını içeren yeni tip
+interface ChartData extends RiskAssessment {
+  time: string;
+  risk: number;
 }
 
-// AegisFlow'a özel, verilerin içyüzünü gösteren Tooltip
-const CustomTooltip = ({ active, payload }: any) => {
+// Tooltip'in beklediği Recharts Props yapısı (any hatasını çözen kısım)
+interface CustomTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    payload: ChartData;
+  }>;
+}
+
+const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
     return (
@@ -36,9 +45,13 @@ const CustomTooltip = ({ active, payload }: any) => {
   return null;
 };
 
+interface RiskChartProps {
+  assessments: RiskAssessment[];
+}
+
 export default function RiskChart({ assessments }: RiskChartProps) {
   // Recharts'ın anlayacağı ve X eksenine dizeceği formata çeviriyoruz
-  const chartData = assessments.map(a => ({
+  const chartData: ChartData[] = assessments.map(a => ({
     ...a,
     time: new Date(a.window_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     risk: a.final_risk // Y ekseni için kısayol

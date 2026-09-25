@@ -4,6 +4,7 @@ import KpiCards from './KpiCards';
 import { RiskAssessment } from '../types';
 import { getAssessments } from '../services/api';
 import RiskTable from './RiskTable';
+import RiskChart from './RiskChart';
 
 export default function Dashboard() {
   const [assessments, setAssessments] = useState<RiskAssessment[]>([]);
@@ -62,6 +63,9 @@ export default function Dashboard() {
         criticalAlerts={criticalAlerts} 
         uniqueUsers={uniqueUsers} 
       />
+
+      {/* Risk Trend / Anomali Grafiği */}
+      <RiskChart assessments={assessments} />
 
       {/* Risk Tablosu */}
       <RiskTable assessments={assessments} />

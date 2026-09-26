@@ -7,6 +7,7 @@ from datetime import timedelta
 from app.infrastructure.database import SessionLocal
 from app.infrastructure.models import RiskAssessment, SecurityEvent, SecurityAlert
 from app.api.schemas import RiskAssessmentResponse, EvidenceResponse
+from app.services.correlation import build_behavioral_timeline
 
 # Veritabanı bağlantısı için FastAPI Dependency Injection
 def get_db():
@@ -18,6 +19,7 @@ def get_db():
 
 router = APIRouter()
 
+# 1. ANA LİSTE ENDPOINT'İ (404 hatasını çözen kayıp fonksiyon)
 @router.get("/assessments", response_model=List[RiskAssessmentResponse])
 def get_assessments(
     user_id: Optional[str] = None,
@@ -25,8 +27,6 @@ def get_assessments(
 ):
     """
     Hesaplanmış risk skorlarını getirir.
-    ?user_id= parametresi ile belirli bir kullanıcıya göre filtrelenebilir.
-    En güncel zaman pencereleri en üstte (DESC) gelecek şekilde sıralanır.
     """
     query = db.query(RiskAssessment)
     
@@ -36,8 +36,7 @@ def get_assessments(
     assessments = query.order_by(RiskAssessment.window_start.desc()).all()
     return assessments
 
-# --- YENİ EKLENEN DRILL-DOWN (KANIT) ENDPOINT'İ ---
-
+# 2. DRILL-DOWN (KANIT VE TIMELINE) ENDPOINT'İ
 @router.get("/assessments/{assessment_id}/evidence", response_model=EvidenceResponse)
 def get_assessment_evidence(
     assessment_id: int, 
@@ -55,23 +54,24 @@ def get_assessment_evidence(
     # Pencere bitişini hesapla (1 saatlik periyotlar)
     window_end = assessment.window_start + timedelta(hours=1)
 
-    # 2. Rule Evidence (Kurallar) - O penceredeki alarmları topla ve grupla
-    alerts = db.query(
-        SecurityAlert.rule_name,
-        SecurityAlert.severity,
-        func.count(SecurityAlert.id).label("count")
-    ).filter(
+    # 2. Rule Evidence (Kurallar)
+    alerts = db.query(SecurityAlert).filter(
         SecurityAlert.user_id == assessment.user_id,
         SecurityAlert.timestamp >= assessment.window_start,
         SecurityAlert.timestamp < window_end
-    ).group_by(SecurityAlert.rule_name, SecurityAlert.severity).all()
+    ).all()
 
+    rule_evidence_map = {}
+    for a in alerts:
+        key = (a.rule_name, a.severity)
+        rule_evidence_map[key] = rule_evidence_map.get(key, 0) + 1
+    
     rule_evidence = [
-        {"rule_name": a.rule_name, "severity": a.severity, "count": a.count}
-        for a in alerts
+        {"rule_name": k[0], "severity": k[1], "count": v}
+        for k, v in rule_evidence_map.items()
     ]
 
-    # 3. ML Evidence (Makine Öğrenmesi) - O penceredeki ham olaylardan özellikleri çıkar
+    # 3. ML Evidence (Makine Öğrenmesi)
     events = db.query(SecurityEvent).filter(
         SecurityEvent.user_id == assessment.user_id,
         SecurityEvent.timestamp >= assessment.window_start,
@@ -80,7 +80,15 @@ def get_assessment_evidence(
 
     total_events = len(events)
     distinct_ips = len(set(e.ip_address for e in events if e.ip_address))
-    critical_actions = len([e for e in events if e.event_type in ["DATA_EXPORT", "DELETE_USER", "PRIVILEGE_ESCALATION"]])
+    critical_actions = len([e for e in events if e.event_type in ["DATA_EXPORT", "DELETE_USER", "PRIVILEGE_ESCALATION", "MASS_DOWNLOAD"]])
+
+    # 4. KORELASYON MOTORUNU ÇALIŞTIR
+    timeline = build_behavioral_timeline(
+        events=events, 
+        alerts=alerts,
+        ml_norm_score=assessment.ml_norm_score,
+        window_start=assessment.window_start
+    )
 
     return {
         "assessment_id": assessment.id,
@@ -91,5 +99,6 @@ def get_assessment_evidence(
             "total_events": total_events,
             "distinct_ips": distinct_ips,
             "critical_actions": critical_actions
-        }
+        },
+        "timeline": timeline
     }

@@ -3,13 +3,12 @@ import {
 } from 'recharts';
 import { RiskAssessment } from '../types';
 
-// X eksenine eklediğimiz 'time' ve Y eksenine eklediğimiz 'risk' alanlarını içeren yeni tip
+// X ekseni için 'timestamp' eklendi (Zaman doğrusunda doğru çizilmesi için)
 interface ChartData extends RiskAssessment {
-  time: string;
+  timestamp: number; // YENİ: Gerçek zaman değeri
   risk: number;
 }
 
-// Tooltip'in beklediği Recharts Props yapısı (any hatasını çözen kısım)
 interface CustomTooltipProps {
   active?: boolean;
   payload?: Array<{
@@ -20,10 +19,13 @@ interface CustomTooltipProps {
 const CustomTooltip = ({ active, payload }: CustomTooltipProps) => {
   if (active && payload && payload.length) {
     const data = payload[0].payload;
+    // Timestamp'i tekrar okunabilir saate çeviriyoruz
+    const formattedTime = new Date(data.timestamp).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+    
     return (
       <div className="bg-slate-800 border border-slate-700 p-4 rounded-lg shadow-xl">
         <p className="text-white font-bold mb-2 text-lg">{data.user_id}</p>
-        <p className="text-slate-300 text-sm mb-1">Zaman: <span className="font-mono text-slate-100">{data.time}</span></p>
+        <p className="text-slate-300 text-sm mb-1">Zaman: <span className="font-mono text-slate-100">{formattedTime}</span></p>
         <p className="text-slate-300 text-sm mb-1">Kural Skoru: <span className="font-semibold text-slate-100">{data.rule_score.toFixed(1)}</span></p>
         <p className="text-slate-300 text-sm mb-3">ML Skoru: <span className="font-semibold text-slate-100">{data.ml_norm_score.toFixed(1)}</span></p>
         
@@ -50,20 +52,25 @@ interface RiskChartProps {
 }
 
 export default function RiskChart({ assessments }: RiskChartProps) {
-  // Recharts'ın anlayacağı ve X eksenine dizeceği formata çeviriyoruz
+  
+  // Recharts için veriyi hazırlıyoruz. Artık X ekseni string değil, tam bir sayı!
   const chartData: ChartData[] = assessments.map(a => ({
     ...a,
-    time: new Date(a.window_start).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    risk: a.final_risk // Y ekseni için kısayol
+    timestamp: new Date(a.window_start).getTime(),
+    risk: a.final_risk
   }));
 
-  // Nokta renkleri
+  // X ekseni altındaki yazıları (1695603600000 -> 03:00) formatlayan fonksiyon
+  const formatXAxisTick = (tickItem: number) => {
+    return new Date(tickItem).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  };
+
   const getColor = (priority: string) => {
     switch (priority) {
-      case 'CRITICAL': return '#ef4444'; // Tailwind red-500
-      case 'HIGH': return '#f97316';     // Tailwind orange-500
-      case 'MEDIUM': return '#eab308';   // Tailwind yellow-500
-      default: return '#10b981';         // Tailwind emerald-500
+      case 'CRITICAL': return '#ef4444';
+      case 'HIGH': return '#f97316';
+      case 'MEDIUM': return '#eab308';
+      default: return '#10b981';
     }
   };
 
@@ -78,17 +85,26 @@ export default function RiskChart({ assessments }: RiskChartProps) {
         <ResponsiveContainer width="100%" height="100%">
           <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: -20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
-            <XAxis dataKey="time" stroke="#94a3b8" tick={{ fill: '#94a3b8' }} />
+            
+            {/* X eksenini artık "Number" (sayısal) yaptık ve otomatik ölçeklendirdik */}
+            <XAxis 
+              type="number" 
+              dataKey="timestamp" 
+              name="Zaman"
+              domain={['dataMin', 'dataMax']} 
+              tickFormatter={formatXAxisTick} 
+              stroke="#94a3b8" 
+              tick={{ fill: '#94a3b8' }} 
+              padding={{ left: 20, right: 20 }}
+            />
+            
             <YAxis dataKey="risk" stroke="#94a3b8" domain={[0, 100]} tick={{ fill: '#94a3b8' }} />
             
             <Tooltip content={<CustomTooltip />} cursor={{ strokeDasharray: '3 3' }} />
             
-            {/* 80 Puan - Kritik Risk Sınırı Çizgisi */}
             <ReferenceLine y={80} stroke="#ef4444" strokeDasharray="4 4" 
               label={{ position: 'top', value: 'Kritik Eşik (80)', fill: '#ef4444', fontSize: 12 }} 
             />
-            
-            {/* 60 Puan - Yüksek Risk Sınırı Çizgisi */}
             <ReferenceLine y={60} stroke="#f97316" strokeDasharray="4 4" opacity={0.5} />
 
             <Scatter data={chartData} name="Assessments">

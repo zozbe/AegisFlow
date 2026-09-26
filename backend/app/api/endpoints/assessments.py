@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List, Optional
+from datetime import timedelta
 
 from app.infrastructure.database import SessionLocal
-from app.infrastructure.models import RiskAssessment
-from app.api.schemas import RiskAssessmentResponse
+from app.infrastructure.models import RiskAssessment, SecurityEvent, SecurityAlert
+from app.api.schemas import RiskAssessmentResponse, EvidenceResponse
 
 # Veritabanı bağlantısı için FastAPI Dependency Injection
 def get_db():
@@ -33,3 +35,61 @@ def get_assessments(
         
     assessments = query.order_by(RiskAssessment.window_start.desc()).all()
     return assessments
+
+# --- YENİ EKLENEN DRILL-DOWN (KANIT) ENDPOINT'İ ---
+
+@router.get("/assessments/{assessment_id}/evidence", response_model=EvidenceResponse)
+def get_assessment_evidence(
+    assessment_id: int, 
+    db: Session = Depends(get_db)
+):
+    """
+    Belirli bir Risk Assessment'ın neden o skoru aldığını (Evidence) 
+    o zaman penceresindeki ham olaylardan ve alarmlardan çıkarır.
+    """
+    # 1. İlgili değerlendirmeyi bul
+    assessment = db.query(RiskAssessment).filter(RiskAssessment.id == assessment_id).first()
+    if not assessment:
+        raise HTTPException(status_code=404, detail="Risk Assessment bulunamadı")
+
+    # Pencere bitişini hesapla (1 saatlik periyotlar)
+    window_end = assessment.window_start + timedelta(hours=1)
+
+    # 2. Rule Evidence (Kurallar) - O penceredeki alarmları topla ve grupla
+    alerts = db.query(
+        SecurityAlert.rule_name,
+        SecurityAlert.severity,
+        func.count(SecurityAlert.id).label("count")
+    ).filter(
+        SecurityAlert.user_id == assessment.user_id,
+        SecurityAlert.timestamp >= assessment.window_start,
+        SecurityAlert.timestamp < window_end
+    ).group_by(SecurityAlert.rule_name, SecurityAlert.severity).all()
+
+    rule_evidence = [
+        {"rule_name": a.rule_name, "severity": a.severity, "count": a.count}
+        for a in alerts
+    ]
+
+    # 3. ML Evidence (Makine Öğrenmesi) - O penceredeki ham olaylardan özellikleri çıkar
+    events = db.query(SecurityEvent).filter(
+        SecurityEvent.user_id == assessment.user_id,
+        SecurityEvent.timestamp >= assessment.window_start,
+        SecurityEvent.timestamp < window_end
+    ).all()
+
+    total_events = len(events)
+    distinct_ips = len(set(e.ip_address for e in events if e.ip_address))
+    critical_actions = len([e for e in events if e.event_type in ["DATA_EXPORT", "DELETE_USER", "PRIVILEGE_ESCALATION"]])
+
+    return {
+        "assessment_id": assessment.id,
+        "user_id": assessment.user_id,
+        "window_start": assessment.window_start,
+        "rule_evidence": rule_evidence,
+        "ml_evidence": {
+            "total_events": total_events,
+            "distinct_ips": distinct_ips,
+            "critical_actions": critical_actions
+        }
+    }

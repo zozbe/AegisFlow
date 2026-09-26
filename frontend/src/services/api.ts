@@ -1,4 +1,4 @@
-import { RiskAssessment } from '../types';
+import { RiskAssessment, EvidenceResponse } from '../types';
 
 const BASE_URL = 'http://127.0.0.1:8000/api/v1';
 
@@ -10,10 +10,12 @@ export const getAssessments = async (
     : `${BASE_URL}/assessments`;
 
   const response = await fetch(url);
+  if (!response.ok) throw new Error(`API Hatası: ${response.status}`);
+  return response.json();
+};
 
-  if (!response.ok) {
-    throw new Error(`API Hatası: ${response.status}`);
-  }
-
+export const getAssessmentEvidence = async (id: number): Promise<EvidenceResponse> => {
+  const response = await fetch(`${BASE_URL}/assessments/${id}/evidence`);
+  if (!response.ok) throw new Error(`API Hatası: ${response.status}`);
   return response.json();
 };

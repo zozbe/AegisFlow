@@ -49,3 +49,16 @@ class EvidenceResponse(BaseModel):
     rule_evidence: List[RuleEvidence]
     ml_evidence: MLEvidence
     timeline: List[TimelineEvent]
+
+class SecurityIncidentResponse(BaseModel):
+    id: int
+    title: str
+    user_id: str
+    status: str
+    severity: str
+    risk_score: float
+    assessment_id: int
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)    

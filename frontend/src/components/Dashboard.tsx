@@ -1,20 +1,50 @@
-import { ShieldAlert, AlertCircle, RefreshCw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { ShieldAlert, AlertCircle, RefreshCw, Siren } from 'lucide-react';
 import { useAssessments } from '../hooks/useAssessments';
+import { getIncidents } from '../services/api';
+import { SecurityIncident } from '../types';
 import KpiCards from './KpiCards';
 import RiskChart from './RiskChart';
-import RiskTable from './RiskTable';
+import IncidentTable from './IncidentTable';
 import UserFilter from './UserFilter';
 
 export default function Dashboard() {
   const {
     assessments,
-    loading,
-    error,
+    loading: loadingAssessments,
+    error: errorAssessments,
     selectedUser,
     setSelectedUser,
     userList,
-    refetch
+    refetch: refetchAssessments
   } = useAssessments();
+
+  // YENİ: Vakaları (Incidents) tuttuğumuz state
+  const [incidents, setIncidents] = useState<SecurityIncident[]>([]);
+  const [loadingIncidents, setLoadingIncidents] = useState(true);
+
+  const fetchIncidents = async () => {
+    try {
+      const data = await getIncidents();
+      setIncidents(data);
+    } catch (err) {
+      console.error("Vakalar çekilemedi:", err);
+    } finally {
+      setLoadingIncidents(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchIncidents();
+  }, []);
+
+  const handleRefresh = () => {
+    refetchAssessments();
+    fetchIncidents();
+  };
+
+  const loading = loadingAssessments || loadingIncidents;
+  const error = errorAssessments;
 
   // KPI Hesaplamaları
   const totalAssessments = assessments.length;
@@ -76,7 +106,7 @@ export default function Dashboard() {
           <p className="text-slate-400 mb-8 max-w-lg mx-auto">{error}</p>
           <button 
             type="button"
-            onClick={refetch}
+            onClick={handleRefresh}
             className="flex items-center gap-2 mx-auto bg-slate-800 hover:bg-slate-700 text-white px-6 py-3 rounded-lg border border-slate-600 transition-colors font-medium shadow-md"
           >
             <RefreshCw className="w-5 h-5" /> Yeniden Dene
@@ -90,7 +120,13 @@ export default function Dashboard() {
             uniqueUsers={uniqueUsers} 
           />
           <RiskChart assessments={assessments} />
-          <RiskTable assessments={assessments} />
+          
+          {/* YENİ: Vaka Tablosu */}
+          <div className="mt-8 mb-4 flex items-center gap-2">
+            <Siren className="w-5 h-5 text-red-400" />
+            <h2 className="text-xl font-bold text-white">Live Alerts & Incidents</h2>
+          </div>
+          <IncidentTable incidents={incidents} />
         </>
       )}
     </div>

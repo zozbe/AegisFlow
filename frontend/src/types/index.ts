@@ -41,3 +41,15 @@ export interface EvidenceResponse {
   ml_evidence: MLEvidence;
   timeline: TimelineEvent[]; // YENİ: Korelasyon çizelgemiz
 }
+
+export interface SecurityIncident {
+  id: number;
+  title: string; 
+  user_id: string;
+  status: string; // 'OPEN', 'INVESTIGATING', 'RESOLVED', 'FALSE_POSITIVE'
+  severity: string; // 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW'
+  risk_score: number;
+  assessment_id: number;
+  created_at: string;
+  updated_at: string;
+}

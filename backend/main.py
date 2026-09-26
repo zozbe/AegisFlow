@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.endpoints import assessments
+from app.api.endpoints import assessments, incidents 
 
 app = FastAPI(
     title="AegisFlow API", 
@@ -18,7 +19,8 @@ app.add_middleware(
 )
 
 # Yazdığımız router'ı /api/v1 prefix'i ile uygulamaya bağlıyoruz
-app.include_router(assessments.router, prefix="/api/v1", tags=["Risk Assessments"])
+app.include_router(assessments.router, prefix="/api/v1", tags=["Assessments"])
+app.include_router(incidents.router, prefix="/api/v1", tags=["Incidents"])
 
 @app.get("/")
 def root():

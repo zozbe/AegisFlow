@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, JSON, Integer, Float, UniqueConstraint, Index
+from sqlalchemy import Column, String, DateTime, JSON, Integer, Float, UniqueConstraint, Index, ForeignKey
 from sqlalchemy.sql import func
 from datetime import datetime
 import uuid
@@ -50,3 +50,25 @@ class RiskAssessment(Base):
         UniqueConstraint("user_id", "window_start", name="uq_risk_assessment_user_window"),
         Index("ix_risk_assessment_user_window", "user_id", "window_start"),
     )
+
+class SecurityIncident(Base):
+    __tablename__ = "security_incidents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String, index=True) 
+    user_id = Column(String, index=True)
+    
+    status = Column(String, default="OPEN", index=True) 
+    severity = Column(String) 
+    risk_score = Column(Float)
+    
+    # YENİ: unique=True ve nullable=False eklendi
+    assessment_id = Column(
+        Integer, 
+        ForeignKey("risk_assessments.id"), 
+        unique=True, 
+        nullable=False
+    )
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
